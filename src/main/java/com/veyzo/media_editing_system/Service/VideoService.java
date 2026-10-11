@@ -165,7 +165,9 @@ public class VideoService {
 
                 if (Files.exists(filePath)) {
                     System.out.println("-> ZIP'e ekleniyor: " + video.getTitle());
-                    ZipEntry zipEntry = new ZipEntry(video.getTitle() + ".mp4");
+                    String safeTitle = video.getTitle().replaceAll("[^a-zA-Z0-9_-]", "_");
+                    String entryName = safeTitle + "_" + video.getId().toString().substring(0, 5) + ".mp4";
+                    ZipEntry zipEntry = new ZipEntry(entryName);
                     zos.putNextEntry(zipEntry);
                     Files.copy(filePath, zos);
                     zos.closeEntry();
