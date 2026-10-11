@@ -3,7 +3,7 @@
 Veyzo is a Spring Boot-based REST API service built for processing video and media files asynchronously. It utilizes FFmpeg to perform I/O-intensive operations such as video trimming, compression, audio extraction, and GIF conversion without blocking the main server threads.
 
 ## Architecture & Technologies
-- **Backend:** Java 17, Spring Boot 3
+- **Backend:** Java 21, Spring Boot 4
 - **Database:** PostgreSQL, Spring Data JPA
 - **Media Processing:** FFmpeg
 - **Security:** Spring Security, JWT (HttpOnly, SameSite=Strict)
@@ -19,7 +19,7 @@ Veyzo is a Spring Boot-based REST API service built for processing video and med
 ## Installation
 
 ### Prerequisites
-- Java 17+
+- Java 21+
 - PostgreSQL
 - FFmpeg (must be installed and added to the system `PATH`)
 
