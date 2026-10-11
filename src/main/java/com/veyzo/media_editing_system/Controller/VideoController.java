@@ -92,6 +92,10 @@ public class VideoController {
     @GetMapping(value = "/download/batch/{batchId}", produces = "application/zip")
     public ResponseEntity<StreamingResponseBody> downloadBatchAsZip(@PathVariable String batchId) {
 
+        if (batchId == null || !batchId.matches("^[a-zA-Z0-9-]+$")) {
+            throw new IllegalArgumentException("Geçersiz klasör ID formatı.");
+        }
+
         String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
 
         List<Video> videos = videoService.getVideosForBatch(batchId, userEmail);
