@@ -1,11 +1,10 @@
-package com.veyzo.media_editing_system.Controller;
+package com.veyzo.media_editing_system.controller;
 
-import com.veyzo.media_editing_system.Service.UserService;
+import com.veyzo.media_editing_system.service.UserService;
 import com.veyzo.media_editing_system.dto.request.LoginRequest;
 import com.veyzo.media_editing_system.dto.request.RegisterRequest;
 import com.veyzo.media_editing_system.dto.response.AuthResponse;
 import com.veyzo.media_editing_system.dto.response.UserProfileDto;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

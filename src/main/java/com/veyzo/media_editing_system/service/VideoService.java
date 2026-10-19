@@ -1,11 +1,11 @@
-package com.veyzo.media_editing_system.Service;
+package com.veyzo.media_editing_system.service;
 
-import com.veyzo.media_editing_system.Model.OperationType;
-import com.veyzo.media_editing_system.Model.User;
-import com.veyzo.media_editing_system.Model.Video;
-import com.veyzo.media_editing_system.Model.VideoStatus;
-import com.veyzo.media_editing_system.Repository.UserRepository;
-import com.veyzo.media_editing_system.Repository.VideoRepository;
+import com.veyzo.media_editing_system.model.OperationType;
+import com.veyzo.media_editing_system.model.User;
+import com.veyzo.media_editing_system.model.Video;
+import com.veyzo.media_editing_system.model.VideoStatus;
+import com.veyzo.media_editing_system.repository.UserRepository;
+import com.veyzo.media_editing_system.repository.VideoRepository;
 import com.veyzo.media_editing_system.dto.response.UploadResponse;
 import com.veyzo.media_editing_system.dto.response.VideoListResponse;
 import com.veyzo.media_editing_system.dto.response.VideoStatusResponse;

@@ -1,4 +1,4 @@
-package com.veyzo.media_editing_system.Config;
+package com.veyzo.media_editing_system.config;
 
 import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;

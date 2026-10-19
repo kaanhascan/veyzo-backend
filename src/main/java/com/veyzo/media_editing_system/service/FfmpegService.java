@@ -1,8 +1,8 @@
-package com.veyzo.media_editing_system.Service;
+package com.veyzo.media_editing_system.service;
 
-import com.veyzo.media_editing_system.Model.Video;
-import com.veyzo.media_editing_system.Model.VideoStatus;
-import com.veyzo.media_editing_system.Repository.VideoRepository;
+import com.veyzo.media_editing_system.model.Video;
+import com.veyzo.media_editing_system.model.VideoStatus;
+import com.veyzo.media_editing_system.repository.VideoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;

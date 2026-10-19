@@ -1,6 +1,6 @@
 package com.veyzo.media_editing_system.dto.response;
 
-import com.veyzo.media_editing_system.Model.VideoStatus;
+import com.veyzo.media_editing_system.model.VideoStatus;
 
 import java.util.UUID;
 

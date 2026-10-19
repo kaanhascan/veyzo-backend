@@ -1,7 +1,7 @@
 package com.veyzo.media_editing_system.dto.response;
 
-import com.veyzo.media_editing_system.Model.OperationType;
-import com.veyzo.media_editing_system.Model.VideoStatus;
+import com.veyzo.media_editing_system.model.OperationType;
+import com.veyzo.media_editing_system.model.VideoStatus;
 
 import java.time.LocalDateTime;
 import java.util.UUID;

@@ -1,6 +1,6 @@
-package com.veyzo.media_editing_system.Config;
+package com.veyzo.media_editing_system.config;
 
-import com.veyzo.media_editing_system.Service.JWTService;
+import com.veyzo.media_editing_system.service.JWTService;
 import io.jsonwebtoken.ExpiredJwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

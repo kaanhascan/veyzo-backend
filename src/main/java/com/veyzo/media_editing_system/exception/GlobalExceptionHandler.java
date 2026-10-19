@@ -1,4 +1,4 @@
-package com.veyzo.media_editing_system.Exception;
+package com.veyzo.media_editing_system.exception;
 
 import com.veyzo.media_editing_system.dto.response.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;

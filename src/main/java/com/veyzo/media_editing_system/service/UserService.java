@@ -1,7 +1,7 @@
-package com.veyzo.media_editing_system.Service;
+package com.veyzo.media_editing_system.service;
 
-import com.veyzo.media_editing_system.Model.User;
-import com.veyzo.media_editing_system.Repository.UserRepository;
+import com.veyzo.media_editing_system.model.User;
+import com.veyzo.media_editing_system.repository.UserRepository;
 import com.veyzo.media_editing_system.dto.request.LoginRequest;
 import com.veyzo.media_editing_system.dto.request.RegisterRequest;
 import com.veyzo.media_editing_system.dto.response.AuthResponse;

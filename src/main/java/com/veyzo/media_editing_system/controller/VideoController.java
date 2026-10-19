@@ -1,12 +1,12 @@
-package com.veyzo.media_editing_system.Controller;
+package com.veyzo.media_editing_system.controller;
 
-import com.veyzo.media_editing_system.Model.OperationType;
-import com.veyzo.media_editing_system.Model.Video;
-import com.veyzo.media_editing_system.Model.VideoStatus;
+import com.veyzo.media_editing_system.model.OperationType;
+import com.veyzo.media_editing_system.model.Video;
+import com.veyzo.media_editing_system.model.VideoStatus;
 
-import com.veyzo.media_editing_system.Repository.VideoRepository;
-import com.veyzo.media_editing_system.Service.VideoService;
-import com.veyzo.media_editing_system.Util.FileValidator;
+import com.veyzo.media_editing_system.repository.VideoRepository;
+import com.veyzo.media_editing_system.service.VideoService;
+import com.veyzo.media_editing_system.util.FileValidator;
 import com.veyzo.media_editing_system.dto.response.VideoListResponse;
 import com.veyzo.media_editing_system.dto.response.VideoStatusResponse;
 import lombok.RequiredArgsConstructor;

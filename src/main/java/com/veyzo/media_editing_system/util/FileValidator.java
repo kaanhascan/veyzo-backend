@@ -1,4 +1,4 @@
-package com.veyzo.media_editing_system.Util; // Kendi paket adına göre düzenle
+package com.veyzo.media_editing_system.util; // Kendi paket adına göre düzenle
 
 import org.springframework.web.multipart.MultipartFile;
 import java.io.InputStream;

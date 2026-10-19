@@ -1,4 +1,4 @@
-package com.veyzo.media_editing_system.Model;
+package com.veyzo.media_editing_system.model;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
