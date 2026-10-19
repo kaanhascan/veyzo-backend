@@ -30,4 +30,4 @@ Veyzo is a Spring Boot-based REST API service built for processing video and med
    spring.datasource.username=your_db_user
    spring.datasource.password=your_db_password
    
-   application.security.jwt.secret-key=your_secret_key_here
+   jwt.secret=your_secret_key_here
