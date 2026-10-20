@@ -3,26 +3,49 @@ package com.veyzo.media_editing_system.service;
 import com.veyzo.media_editing_system.model.Video;
 import com.veyzo.media_editing_system.model.VideoStatus;
 import com.veyzo.media_editing_system.repository.VideoRepository;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class FfmpegService {
 
     private final VideoRepository videoRepository;
     private final String PROCESSED_DIR = System.getProperty("user.dir") + "/uploads/processed/";
+    private static final long FFMPEG_TIMEOUT_MINUTES = 10;
 
-    @Async
+    @PostConstruct
+    public void recoverStuckVideosOnStartup() {
+        List<Video> stuckVideos = videoRepository.findByStatusIn(
+                List.of(VideoStatus.PENDING, VideoStatus.PROCESSING)
+        );
+        if (!stuckVideos.isEmpty()) {
+            for (Video video : stuckVideos) {
+                video.setStatus(VideoStatus.FAILED);
+            }
+            videoRepository.saveAll(stuckVideos);
+            log.warn("Uygulama başlatılırken yarıda kalmış {} adet video FAILED statüsüne çekildi.", stuckVideos.size());
+        }
+    }
+
+    @Async("ffmpegTaskExecutor")
     public void processVideoTrimming(UUID videoId, String startTime, String duration) {
-
 
         Video video = videoRepository.findById(videoId)
                 .orElseThrow(() -> new RuntimeException("Video bulunamadı"));
@@ -37,7 +60,6 @@ public class FfmpegService {
             String outputFileName = "trimmed_" + video.getOriginalFileName();
             String outputFilePath = PROCESSED_DIR + outputFileName;
 
-
             ProcessBuilder processBuilder = new ProcessBuilder(
                     "ffmpeg", "-y",
                     "-i", video.getOriginalFilePath(),
@@ -47,21 +69,9 @@ public class FfmpegService {
                     outputFilePath
             );
 
+            boolean success = runFfmpegProcess(processBuilder, "TRIM");
 
-            processBuilder.redirectErrorStream(true);
-            Process process = processBuilder.start();
-
-
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                System.out.println("[FFMPEG]: " + line);
-            }
-
-
-            int exitCode = process.waitFor();
-
-            if (exitCode == 0) {
+            if (success) {
                 video.setStatus(VideoStatus.COMPLETED);
                 video.setProcessedFileName(outputFileName);
                 video.setProcessedFilePath(outputFilePath);
@@ -70,15 +80,14 @@ public class FfmpegService {
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Video kırpma hatası (videoId={}): {}", videoId, e.getMessage(), e);
             video.setStatus(VideoStatus.FAILED);
         } finally {
             videoRepository.save(video);
         }
     }
 
-
-    @Async
+    @Async("ffmpegTaskExecutor")
     public void processAudioExtraction(UUID videoId) {
 
         Video video = videoRepository.findById(videoId)
@@ -91,7 +100,7 @@ public class FfmpegService {
             File directory = new File(PROCESSED_DIR);
             if (!directory.exists()) directory.mkdirs();
 
-            String outputFileName = "audio_" + UUID.randomUUID().toString() + ".mp3";
+            String outputFileName = "audio_" + UUID.randomUUID() + ".mp3";
             String outputFilePath = PROCESSED_DIR + outputFileName;
 
             ProcessBuilder processBuilder = new ProcessBuilder(
@@ -103,18 +112,9 @@ public class FfmpegService {
                     outputFilePath
             );
 
-            processBuilder.redirectErrorStream(true);
-            Process process = processBuilder.start();
+            boolean success = runFfmpegProcess(processBuilder, "AUDIO");
 
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                System.out.println("[FFMPEG AUDIO]: " + line);
-            }
-
-            int exitCode = process.waitFor();
-
-            if (exitCode == 0) {
+            if (success) {
                 video.setStatus(VideoStatus.COMPLETED);
                 video.setProcessedFileName(outputFileName);
                 video.setProcessedFilePath(outputFilePath);
@@ -123,34 +123,39 @@ public class FfmpegService {
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Ses ayırma hatası (videoId={}): {}", videoId, e.getMessage(), e);
             video.setStatus(VideoStatus.FAILED);
         } finally {
             videoRepository.save(video);
         }
     }
 
-    @Async
+    @Async("ffmpegTaskExecutor")
     public void processVideoMerging(UUID mergedVideoId, List<UUID> sourceVideoIds) {
         Video mergedVideo = videoRepository.findById(mergedVideoId)
                 .orElseThrow(() -> new RuntimeException("Birleştirilecek video kaydı bulunamadı"));
 
+        File listFile = null;
         try {
             mergedVideo.setStatus(VideoStatus.PROCESSING);
             videoRepository.save(mergedVideo);
 
-            List<Video> sourceVideos = videoRepository.findAllById(sourceVideoIds);
+            Map<UUID, Video> videoMap = videoRepository.findAllById(sourceVideoIds).stream()
+                    .collect(Collectors.toMap(Video::getId, Function.identity()));
 
             File directory = new File(PROCESSED_DIR);
             if (!directory.exists()) directory.mkdirs();
 
-            String outputFileName = "merged_" + UUID.randomUUID().toString() + ".mp4";
+            String outputFileName = "merged_" + UUID.randomUUID() + ".mp4";
             String outputFilePath = PROCESSED_DIR + outputFileName;
 
-            File listFile = new File(PROCESSED_DIR + "concat_" + mergedVideo.getId() + ".txt");
-            try (java.io.PrintWriter pw = new java.io.PrintWriter(listFile)) {
-                for (Video v : sourceVideos) {
-                    pw.println("file '" + v.getProcessedFilePath().replace("\\", "/") + "'");
+            listFile = new File(PROCESSED_DIR + "concat_" + mergedVideo.getId() + ".txt");
+            try (PrintWriter pw = new PrintWriter(listFile)) {
+                for (UUID id : sourceVideoIds) {
+                    Video v = videoMap.get(id);
+                    if (v != null && v.getProcessedFilePath() != null) {
+                        pw.println("file '" + v.getProcessedFilePath().replace("\\", "/") + "'");
+                    }
                 }
             }
 
@@ -166,18 +171,9 @@ public class FfmpegService {
                     outputFilePath
             );
 
-            processBuilder.redirectErrorStream(true);
-            Process process = processBuilder.start();
-            BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                System.out.println("[FFMPEG]: " + line);
-            }
-            int exitCode = process.waitFor();
+            boolean success = runFfmpegProcess(processBuilder, "MERGE");
 
-            listFile.delete();
-
-            if (exitCode == 0) {
+            if (success) {
                 mergedVideo.setStatus(VideoStatus.COMPLETED);
                 mergedVideo.setProcessedFileName(outputFileName);
                 mergedVideo.setProcessedFilePath(outputFilePath);
@@ -185,14 +181,17 @@ public class FfmpegService {
                 mergedVideo.setStatus(VideoStatus.FAILED);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Video birleştirme hatası (mergedVideoId={}): {}", mergedVideoId, e.getMessage(), e);
             mergedVideo.setStatus(VideoStatus.FAILED);
         } finally {
+            if (listFile != null && listFile.exists()) {
+                listFile.delete();
+            }
             videoRepository.save(mergedVideo);
         }
     }
 
-    @Async
+    @Async("ffmpegTaskExecutor")
     public void processGifConversion(UUID videoId) {
         Video video = videoRepository.findById(videoId)
                 .orElseThrow(() -> new RuntimeException("GIF için video kaydı bulunamadı"));
@@ -204,7 +203,7 @@ public class FfmpegService {
             File directory = new File(PROCESSED_DIR);
             if (!directory.exists()) directory.mkdirs();
 
-            String outputFileName = "gif_" + UUID.randomUUID().toString() + ".gif";
+            String outputFileName = "gif_" + UUID.randomUUID() + ".gif";
             String outputFilePath = PROCESSED_DIR + outputFileName;
 
             ProcessBuilder processBuilder = new ProcessBuilder(
@@ -214,18 +213,9 @@ public class FfmpegService {
                     outputFilePath
             );
 
-            processBuilder.redirectErrorStream(true);
-            Process process = processBuilder.start();
+            boolean success = runFfmpegProcess(processBuilder, "GIF");
 
-            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                // System.out.println("[FFMPEG GIF]: " + line);
-            }
-
-            int exitCode = process.waitFor();
-
-            if (exitCode == 0) {
+            if (success) {
                 video.setStatus(VideoStatus.COMPLETED);
                 video.setProcessedFileName(outputFileName);
                 video.setProcessedFilePath(outputFilePath);
@@ -233,14 +223,14 @@ public class FfmpegService {
                 video.setStatus(VideoStatus.FAILED);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("GIF dönüştürme hatası (videoId={}): {}", videoId, e.getMessage(), e);
             video.setStatus(VideoStatus.FAILED);
         } finally {
             videoRepository.save(video);
         }
     }
 
-    @Async
+    @Async("ffmpegTaskExecutor")
     public void processVideoCompression(UUID videoId) {
         Video initialVideo = videoRepository.findById(videoId)
                 .orElseThrow(() -> new RuntimeException("Sıkıştırma için video kaydı bulunamadı"));
@@ -256,7 +246,7 @@ public class FfmpegService {
             File directory = new File(PROCESSED_DIR);
             if (!directory.exists()) directory.mkdirs();
 
-            String outputFileName = "compressed_" + UUID.randomUUID().toString() + ".mp4";
+            String outputFileName = "compressed_" + UUID.randomUUID() + ".mp4";
             String outputFilePath = PROCESSED_DIR + outputFileName;
 
             ProcessBuilder processBuilder = new ProcessBuilder(
@@ -270,26 +260,15 @@ public class FfmpegService {
                     outputFilePath
             );
 
-            processBuilder.redirectErrorStream(true);
-            Process process = processBuilder.start();
-
-            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                // Buffer temizliği...
-            }
-
-            int exitCode = process.waitFor();
-
-            if (exitCode == 0) {
+            if (runFfmpegProcess(processBuilder, "COMPRESS")) {
                 isSuccess = true;
                 finalOutputFileName = outputFileName;
                 finalOutputFilePath = outputFilePath;
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Video sıkıştırma hatası (videoId={}): {}", videoId, e.getMessage(), e);
         } finally {
-            java.util.Optional<Video> optionalVideo = videoRepository.findById(videoId);
+            Optional<Video> optionalVideo = videoRepository.findById(videoId);
 
             if (optionalVideo.isPresent()) {
                 Video latestVideo = optionalVideo.get();
@@ -305,5 +284,31 @@ public class FfmpegService {
                 videoRepository.save(latestVideo);
             }
         }
+    }
+
+    private boolean runFfmpegProcess(ProcessBuilder processBuilder, String operationTag) throws Exception {
+        processBuilder.redirectErrorStream(true);
+        Process process = processBuilder.start();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                log.debug("[FFMPEG {}]: {}", operationTag, line);
+            }
+        }
+
+        boolean finished = process.waitFor(FFMPEG_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+        if (!finished) {
+            process.destroyForcibly();
+            log.error("[FFMPEG {}] İşlem zaman aşımına uğradı ({} dk) ve sonlandırıldı.", operationTag, FFMPEG_TIMEOUT_MINUTES);
+            return false;
+        }
+
+        int exitCode = process.exitValue();
+        if (exitCode != 0) {
+            log.error("[FFMPEG {}] İşlem başarısız çıkış kodu ile sonlandı: {}", operationTag, exitCode);
+            return false;
+        }
+        return true;
     }
 }
