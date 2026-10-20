@@ -2,6 +2,7 @@ package com.veyzo.media_editing_system.exception;
 
 import com.veyzo.media_editing_system.dto.response.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -20,6 +21,7 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.stream.Collectors;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -78,8 +80,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(IOException.class)
     public ResponseEntity<ApiErrorResponse> handleIOException(IOException ex, HttpServletRequest request) {
-        System.err.println("Dosya İşlem Hatası: " + ex.getMessage());
-        ex.printStackTrace();
+        log.error("Dosya işlem hatası (URI={}): {}", request.getRequestURI(), ex.getMessage(), ex);
         return buildErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "Dosya işlenirken bir hata oluştu: " + ex.getMessage(),
@@ -89,8 +90,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiErrorResponse> handleGlobalException(Exception ex, HttpServletRequest request) {
-        System.err.println("Kritik Sistem Hatası Yakalandı: " + ex.getMessage());
-        ex.printStackTrace();
+        log.error("Kritik sistem hatası yakalandı (URI={}): {}", request.getRequestURI(), ex.getMessage(), ex);
 
         return buildErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR,
