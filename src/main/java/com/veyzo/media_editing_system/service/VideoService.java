@@ -11,6 +11,7 @@ import com.veyzo.media_editing_system.dto.response.UploadResponse;
 import com.veyzo.media_editing_system.dto.response.VideoListResponse;
 import com.veyzo.media_editing_system.dto.response.VideoStatusResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -20,17 +21,21 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class VideoService {
@@ -38,7 +43,6 @@ public class VideoService {
     private final VideoRepository videoRepository;
     private final UserRepository userRepository;
     private final FfmpegService ffmpegService;
-
 
     private final String UPLOAD_DIR = System.getProperty("user.dir") + "/uploads/raw/";
 
@@ -49,25 +53,15 @@ public class VideoService {
             directory.mkdirs();
         }
 
-
-        String originalFilename = file.getOriginalFilename();
-        String fileExtension = originalFilename != null && originalFilename.contains(".")
-                ? originalFilename.substring(originalFilename.lastIndexOf("."))
-                : ".mp4";
-        String uniqueFileName = UUID.randomUUID().toString() + fileExtension;
+        String uniqueFileName = generateUniqueFileName(file.getOriginalFilename());
         Path filePath = Paths.get(UPLOAD_DIR, uniqueFileName);
-
 
         Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
 
-
-        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
-
+        User currentUser = getCurrentUser();
 
         Video video = Video.builder()
-                .title(title)
+                .title(title.trim())
                 .originalFileName(uniqueFileName)
                 .originalFilePath(filePath.toString())
                 .status(VideoStatus.PENDING)
@@ -78,8 +72,7 @@ public class VideoService {
 
         Video savedVideo = videoRepository.save(video);
 
-        ffmpegService.processVideoTrimming(savedVideo.getId(), startTime, duration);
-
+        ffmpegService.processVideoTrimming(savedVideo.getId(), startTime.trim(), duration.trim());
 
         return new UploadResponse(
                 savedVideo.getId(),
@@ -96,11 +89,7 @@ public class VideoService {
     }
 
     public List<VideoListResponse> getUserVideos() {
-
-        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        User user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
-
+        User user = getCurrentUser();
 
         return videoRepository.findByUser_IdOrderByCreatedAtDesc(user.getId())
                 .stream()
@@ -119,29 +108,17 @@ public class VideoService {
 
     @Transactional
     public void deleteVideo(UUID videoId) {
-        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
-
         Video video = getOwnedVideo(videoId);
 
-        String currentUserIdStr = currentUser.getId().toString();
-        String videoOwnerIdStr = video.getUser().getId().toString();
-
-        if(!videoOwnerIdStr.equals(currentUserIdStr)) {
-            throw new BusinessException("Bu video başka bir kullanıcıya ait!", HttpStatus.FORBIDDEN);
-        }
-
-        try{
-            if(video.getOriginalFilePath() != null){
+        try {
+            if (video.getOriginalFilePath() != null && !"virtual".equals(video.getOriginalFilePath())) {
                 Files.deleteIfExists(Paths.get(video.getOriginalFilePath()));
             }
-            if(video.getProcessedFilePath() != null){
+            if (video.getProcessedFilePath() != null) {
                 Files.deleteIfExists(Paths.get(video.getProcessedFilePath()));
             }
-        }
-        catch(Exception e){
-            System.err.println("Dosya fiziksel olarak silinirken bir hata ile karşılaşıldı." + e.getMessage());
+        } catch (Exception e) {
+            log.error("Dosya fiziksel olarak silinirken bir hata ile karşılaşıldı (videoId={}): {}", videoId, e.getMessage());
         }
         videoRepository.delete(video);
     }
@@ -158,65 +135,59 @@ public class VideoService {
             boolean hasFiles = false;
 
             for (Video video : videos) {
-                String statusStr = video.getStatus() != null ? String.valueOf(video.getStatus()) : "";
-
-                System.out.println("--- VİDEO İŞLENİYOR: " + video.getTitle() + " ---");
-
-                if (!"COMPLETED".equalsIgnoreCase(statusStr) || video.getProcessedFilePath() == null) {
-                    System.out.println("-> Atlandı: Statü uygun değil.");
+                if (video.getStatus() != VideoStatus.COMPLETED || video.getProcessedFilePath() == null) {
+                    log.debug("ZIP için atlandı (statü uygun değil): {}", video.getTitle());
                     continue;
                 }
 
                 Path filePath = Paths.get(video.getProcessedFilePath());
 
                 if (Files.exists(filePath)) {
-                    System.out.println("-> ZIP'e ekleniyor: " + video.getTitle());
+                    String processedPath = video.getProcessedFilePath();
+                    String extension = processedPath.contains(".")
+                            ? processedPath.substring(processedPath.lastIndexOf("."))
+                            : ".mp4";
+
                     String safeTitle = video.getTitle().replaceAll("[^a-zA-Z0-9_-]", "_");
-                    String entryName = safeTitle + "_" + video.getId().toString().substring(0, 5) + ".mp4";
+                    String entryName = safeTitle + "_" + video.getId().toString().substring(0, 5) + extension;
+
                     ZipEntry zipEntry = new ZipEntry(entryName);
                     zos.putNextEntry(zipEntry);
                     Files.copy(filePath, zos);
                     zos.closeEntry();
                     hasFiles = true;
                 } else {
-                    System.out.println("-> Dosya fiziksel olarak bulunamadı: " + filePath.toAbsolutePath());
+                    log.warn("ZIP için dosya fiziksel olarak bulunamadı: {}", filePath.toAbsolutePath());
                 }
             }
 
             if (!hasFiles) {
                 ZipEntry errorEntry = new ZipEntry("bilgi.txt");
                 zos.putNextEntry(errorEntry);
-                zos.write("Bu klasördeki videolar henuz islenmemis, basarisiz olmus veya silinmis olabilir.".getBytes());
+                zos.write("Bu klasördeki videolar henüz işlenmemiş, başarısız olmuş veya silinmiş olabilir.".getBytes(StandardCharsets.UTF_8));
                 zos.closeEntry();
             }
 
         } catch (Exception e) {
-            System.err.println("ZIP oluşturulurken hata: " + e.getMessage());
-            e.printStackTrace();
+            log.error("ZIP oluşturulurken hata: {}", e.getMessage(), e);
         }
     }
 
-    public void uploadForAudio(MultipartFile file, String title, String batchId,OperationType operationType) throws IOException {
+    public void uploadForAudio(MultipartFile file, String title, String batchId, OperationType operationType) throws IOException {
         File directory = new File(UPLOAD_DIR);
         if (!directory.exists()) {
             directory.mkdirs();
         }
 
-        String originalFilename = file.getOriginalFilename();
-        String fileExtension = originalFilename != null && originalFilename.contains(".")
-                ? originalFilename.substring(originalFilename.lastIndexOf("."))
-                : ".mp4";
-        String uniqueFileName = UUID.randomUUID().toString() + fileExtension;
+        String uniqueFileName = generateUniqueFileName(file.getOriginalFilename());
         Path filePath = Paths.get(UPLOAD_DIR, uniqueFileName);
 
         Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
 
-        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
+        User currentUser = getCurrentUser();
 
         Video video = Video.builder()
-                .title(title)
+                .title(title.trim())
                 .originalFileName(uniqueFileName)
                 .originalFilePath(filePath.toString())
                 .status(VideoStatus.PENDING)
@@ -227,13 +198,19 @@ public class VideoService {
 
         Video savedVideo = videoRepository.save(video);
 
-
         ffmpegService.processAudioExtraction(savedVideo.getId());
     }
 
-    public void mergeVideos(MultipartFile[] newFiles, List<UUID> existingVideoIds, String title, String batchId,OperationType operationType) throws IOException {
+    public void mergeVideos(MultipartFile[] newFiles, List<UUID> existingVideoIds, String title, String batchId, OperationType operationType) throws IOException {
 
-        int newFilesCount = (newFiles != null) ? newFiles.length : 0;
+        int newFilesCount = 0;
+        if (newFiles != null) {
+            for (MultipartFile f : newFiles) {
+                if (f != null && !f.isEmpty()) {
+                    newFilesCount++;
+                }
+            }
+        }
         int existingCount = (existingVideoIds != null) ? existingVideoIds.size() : 0;
 
         if (newFilesCount + existingCount < 2) {
@@ -243,15 +220,18 @@ public class VideoService {
             throw new IllegalArgumentException("Geçerli bir başlık girmelisiniz.");
         }
 
-        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
-
+        User currentUser = getCurrentUser();
         List<UUID> allVideoIdsToMerge = new ArrayList<>();
 
         if (existingVideoIds != null && !existingVideoIds.isEmpty()) {
-            List<Video> sourceVideos = videoRepository.findAllById(existingVideoIds);
-            for (Video v : sourceVideos) {
+            Map<UUID, Video> videoMap = videoRepository.findAllById(existingVideoIds).stream()
+                    .collect(Collectors.toMap(Video::getId, Function.identity()));
+
+            for (UUID id : existingVideoIds) {
+                Video v = videoMap.get(id);
+                if (v == null) {
+                    throw new BusinessException("Seçilen videolardan biri bulunamadı: " + id, HttpStatus.NOT_FOUND);
+                }
                 if (!v.getUser().getId().equals(currentUser.getId())) {
                     throw new BusinessException("Sadece kendi videolarınızı birleştirebilirsiniz!", HttpStatus.FORBIDDEN);
                 }
@@ -267,13 +247,10 @@ public class VideoService {
             if (!directory.exists()) directory.mkdirs();
 
             for (MultipartFile file : newFiles) {
-                if (file.isEmpty()) continue;
+                if (file == null || file.isEmpty()) continue;
 
                 String originalFilename = file.getOriginalFilename();
-                String ext = (originalFilename != null && originalFilename.contains("."))
-                        ? originalFilename.substring(originalFilename.lastIndexOf("."))
-                        : ".mp4";
-                String uniqueFileName = UUID.randomUUID().toString() + ext;
+                String uniqueFileName = generateUniqueFileName(originalFilename);
                 Path filePath = Paths.get(UPLOAD_DIR, uniqueFileName);
 
                 Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
@@ -310,35 +287,16 @@ public class VideoService {
         ffmpegService.processVideoMerging(savedMergedVideo.getId(), allVideoIdsToMerge);
     }
 
-    public void uploadForGif(MultipartFile file, String title, String batchId,OperationType operationType) throws IOException {
-        if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("Lütfen geçerli bir dosya yükleyin. Dosya boş olamaz.");
-        }
-        if (title == null || title.trim().isEmpty()) {
-            throw new IllegalArgumentException("GIF için bir başlık girmelisiniz.");
-        }
-
-        String contentType = file.getContentType();
-        if (contentType == null || !contentType.startsWith("video/")) {
-            throw new IllegalArgumentException("Sadece video dosyaları GIF'e dönüştürülebilir.");
-        }
-
+    public void uploadForGif(MultipartFile file, String title, String batchId, OperationType operationType) throws IOException {
         File directory = new File(UPLOAD_DIR);
         if (!directory.exists()) directory.mkdirs();
 
-        String originalFilename = file.getOriginalFilename();
-        String fileExtension = (originalFilename != null && originalFilename.contains("."))
-                ? originalFilename.substring(originalFilename.lastIndexOf("."))
-                : ".mp4";
-
-        String uniqueFileName = UUID.randomUUID().toString() + fileExtension;
+        String uniqueFileName = generateUniqueFileName(file.getOriginalFilename());
         Path filePath = Paths.get(UPLOAD_DIR, uniqueFileName);
 
         Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
 
-        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
+        User currentUser = getCurrentUser();
 
         Video video = Video.builder()
                 .title(title.trim())
@@ -355,26 +313,15 @@ public class VideoService {
         ffmpegService.processGifConversion(savedVideo.getId());
     }
 
-    public void uploadForCompression(MultipartFile file, String title,OperationType operationType) throws IOException {
-        if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("Lütfen geçerli bir dosya yükleyin.");
-        }
-
+    public void uploadForCompression(MultipartFile file, String title, OperationType operationType) throws IOException {
         File directory = new File(UPLOAD_DIR);
         if (!directory.exists()) directory.mkdirs();
 
-        String originalFilename = file.getOriginalFilename();
-        String fileExtension = (originalFilename != null && originalFilename.contains("."))
-                ? originalFilename.substring(originalFilename.lastIndexOf("."))
-                : ".mp4";
-
-        String uniqueFileName = UUID.randomUUID().toString() + fileExtension;
+        String uniqueFileName = generateUniqueFileName(file.getOriginalFilename());
         Path filePath = Paths.get(UPLOAD_DIR, uniqueFileName);
         Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
 
-        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
+        User currentUser = getCurrentUser();
 
         Video video = Video.builder()
                 .title(title.trim())
@@ -403,5 +350,16 @@ public class VideoService {
         return video;
     }
 
+    private User getCurrentUser() {
+        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+        return userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
+    }
 
+    private String generateUniqueFileName(String originalFilename) {
+        String fileExtension = (originalFilename != null && originalFilename.contains("."))
+                ? originalFilename.substring(originalFilename.lastIndexOf("."))
+                : ".mp4";
+        return UUID.randomUUID() + fileExtension;
+    }
 }
