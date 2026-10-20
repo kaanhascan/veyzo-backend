@@ -1,6 +1,7 @@
 package com.veyzo.media_editing_system.util; // Kendi paket adına göre düzenle
 
 import org.springframework.web.multipart.MultipartFile;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
 import java.util.List;
@@ -38,7 +39,9 @@ public class FileValidator {
             if (!isFtyp) {
                 throw new IllegalArgumentException("Dosya içeriği geçersiz! Uzantısı değiştirilmiş sahte dosya tespit edildi.");
             }
-        } catch (Exception e) {
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (IOException e) {
             throw new IllegalArgumentException("Dosya doğrulanırken bir hata oluştu: " + e.getMessage());
         }
     }

@@ -1,5 +1,6 @@
 package com.veyzo.media_editing_system.controller;
 
+import com.veyzo.media_editing_system.exception.BusinessException;
 import com.veyzo.media_editing_system.model.OperationType;
 import com.veyzo.media_editing_system.model.Video;
 import com.veyzo.media_editing_system.model.VideoStatus;
@@ -37,51 +38,27 @@ public class VideoController {
     private final VideoRepository videoRepository;
 
     @PostMapping(value = "/upload")
-    public ResponseEntity<?> uploadVideo(
+    public ResponseEntity<String> uploadVideo(
             @RequestParam("file") MultipartFile file,
             @RequestParam("title") String title,
             @RequestParam("startTime") String startTime,
             @RequestParam("duration") String duration,
             @RequestParam(value = "batchId", required = false) String batchId
-    ) {
-        try {
-            FileValidator.validateVideoFile(file);
-            videoService.uploadVideo(file, title, startTime, duration, batchId, OperationType.TRIM);
-            return ResponseEntity.ok("Video başarıyla yüklendi");
-
-        } catch (IOException e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Dosya yüklenirken bir hata oluştu: " + e.getMessage());
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Beklenmeyen bir hata oluştu: " + e.getMessage());
-        }
+    ) throws IOException {
+        FileValidator.validateVideoFile(file);
+        videoService.uploadVideo(file, title, startTime, duration, batchId, OperationType.TRIM);
+        return ResponseEntity.ok("Video başarıyla yüklendi");
     }
 
     @PostMapping(value = "/extract-audio")
-    public ResponseEntity<?> extractAudio(
+    public ResponseEntity<String> extractAudio(
             @RequestParam("file") MultipartFile file,
             @RequestParam("title") String title,
             @RequestParam(value = "batchId", required = false) String batchId
-    ) {
-        try {
-            FileValidator.validateVideoFile(file);
-            videoService.uploadForAudio(file, title, batchId,OperationType.AUDIO);
-            return ResponseEntity.ok("Video başarıyla yüklendi, ses ayırma işlemi başladı");
-
-        } catch (IOException e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Dosya yüklenirken bir hata oluştu: " + e.getMessage());
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Beklenmeyen bir hata oluştu: " + e.getMessage());
-        }
+    ) throws IOException {
+        FileValidator.validateVideoFile(file);
+        videoService.uploadForAudio(file, title, batchId, OperationType.AUDIO);
+        return ResponseEntity.ok("Video başarıyla yüklendi, ses ayırma işlemi başladı");
     }
 
     @GetMapping("/{videoId}/status")
@@ -115,10 +92,14 @@ public class VideoController {
         Video video = videoService.getOwnedVideo(videoId);
 
         if (video.getStatus() != VideoStatus.COMPLETED) {
-            throw new RuntimeException("Video henüz hazır değil.");
+            throw new BusinessException("Video henüz hazır değil.", HttpStatus.BAD_REQUEST);
         }
 
         File file = new File(video.getProcessedFilePath());
+        if (!file.exists()) {
+            throw new BusinessException("İşlenmiş video dosyası sunucuda bulunamadı.", HttpStatus.NOT_FOUND);
+        }
+
         Resource resource = new FileSystemResource(file);
 
         String processedPath = video.getProcessedFilePath();
@@ -154,81 +135,55 @@ public class VideoController {
 
     @DeleteMapping("/{videoId}")
     public ResponseEntity<String> deletevideo(@PathVariable UUID videoId) {
-        try{
-            videoService.deleteVideo(videoId);
-            return ResponseEntity.ok("Video başarıyla silindi");
-        }
-        catch (Exception e){
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
+        videoService.deleteVideo(videoId);
+        return ResponseEntity.ok("Video başarıyla silindi");
     }
 
     @PostMapping(value = "/merge", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> mergeVideos(
+    public ResponseEntity<String> mergeVideos(
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @RequestParam(value = "existingVideoIds", required = false) List<String> existingVideoIds,
             @RequestParam("title") String title,
             @RequestParam(value = "batchId", required = false) String batchId
-    ) {
-        try {
-            List<UUID> uuidList = null;
-            if (existingVideoIds != null && !existingVideoIds.isEmpty()) {
+    ) throws IOException {
+        List<UUID> uuidList = null;
+        if (existingVideoIds != null && !existingVideoIds.isEmpty()) {
+            try {
                 uuidList = existingVideoIds.stream()
                         .map(UUID::fromString)
                         .toList();
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Geçersiz video ID formatı.");
             }
-            if(files != null){
-                for(MultipartFile file : files){
-                    FileValidator.validateVideoFile(file);
-                }
-            }
-
-            videoService.mergeVideos(files, uuidList, title, batchId,OperationType.MERGE);
-            return ResponseEntity.ok("Video birleştirme işlemi başarıyla kuyruğa alındı.");
-
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Birleştirme hatası: " + e.getMessage());
         }
+        if (files != null) {
+            for (MultipartFile file : files) {
+                FileValidator.validateVideoFile(file);
+            }
+        }
+
+        videoService.mergeVideos(files, uuidList, title, batchId, OperationType.MERGE);
+        return ResponseEntity.ok("Video birleştirme işlemi başarıyla kuyruğa alındı.");
     }
 
     @PostMapping(value = "/extract-gif", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> extractGif(
+    public ResponseEntity<String> extractGif(
             @RequestParam("file") MultipartFile file,
             @RequestParam("title") String title,
             @RequestParam(value = "batchId", required = false) String batchId
-    ) {
-        try {
-            FileValidator.validateVideoFile(file);
-            videoService.uploadForGif(file, title, null,OperationType.GIF);
-            return ResponseEntity.ok("GIF dönüştürme işlemi başarıyla kuyruğa alındı.");
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("GIF yükleme hatası: " + e.getMessage());
-        }
+    ) throws IOException {
+        FileValidator.validateVideoFile(file);
+        videoService.uploadForGif(file, title, batchId, OperationType.GIF);
+        return ResponseEntity.ok("GIF dönüştürme işlemi başarıyla kuyruğa alındı.");
     }
 
     @PostMapping(value = "/compress", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> compressVideo(
+    public ResponseEntity<String> compressVideo(
             @RequestParam("file") MultipartFile file,
             @RequestParam("title") String title
-    ) {
-        try {
-            FileValidator.validateVideoFile(file);
-            videoService.uploadForCompression(file, title,OperationType.COMPRESS);
-            return ResponseEntity.ok("Sıkıştırma işlemi başarıyla kuyruğa alındı.");
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Video yükleme hatası: " + e.getMessage());
-        }
+    ) throws IOException {
+        FileValidator.validateVideoFile(file);
+        videoService.uploadForCompression(file, title, OperationType.COMPRESS);
+        return ResponseEntity.ok("Sıkıştırma işlemi başarıyla kuyruğa alındı.");
     }
 }

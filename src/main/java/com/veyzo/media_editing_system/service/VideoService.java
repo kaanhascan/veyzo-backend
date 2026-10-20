@@ -1,5 +1,6 @@
 package com.veyzo.media_editing_system.service;
 
+import com.veyzo.media_editing_system.exception.BusinessException;
 import com.veyzo.media_editing_system.model.OperationType;
 import com.veyzo.media_editing_system.model.User;
 import com.veyzo.media_editing_system.model.Video;
@@ -10,6 +11,7 @@ import com.veyzo.media_editing_system.dto.response.UploadResponse;
 import com.veyzo.media_editing_system.dto.response.VideoListResponse;
 import com.veyzo.media_editing_system.dto.response.VideoStatusResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,7 +51,9 @@ public class VideoService {
 
 
         String originalFilename = file.getOriginalFilename();
-        String fileExtension = originalFilename.substring(originalFilename.lastIndexOf("."));
+        String fileExtension = originalFilename != null && originalFilename.contains(".")
+                ? originalFilename.substring(originalFilename.lastIndexOf("."))
+                : ".mp4";
         String uniqueFileName = UUID.randomUUID().toString() + fileExtension;
         Path filePath = Paths.get(UPLOAD_DIR, uniqueFileName);
 
@@ -59,7 +63,7 @@ public class VideoService {
 
         String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı"));
+                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
 
 
         Video video = Video.builder()
@@ -95,7 +99,7 @@ public class VideoService {
 
         String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         User user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı"));
+                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
 
 
         return videoRepository.findByUser_IdOrderByCreatedAtDesc(user.getId())
@@ -112,11 +116,12 @@ public class VideoService {
                 ))
                 .collect(Collectors.toList());
     }
+
     @Transactional
     public void deleteVideo(UUID videoId) {
         String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı"));
+                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
 
         Video video = getOwnedVideo(videoId);
 
@@ -124,7 +129,7 @@ public class VideoService {
         String videoOwnerIdStr = video.getUser().getId().toString();
 
         if(!videoOwnerIdStr.equals(currentUserIdStr)) {
-            throw new RuntimeException("Bu video başka bir kullancıya ait!");
+            throw new BusinessException("Bu video başka bir kullanıcıya ait!", HttpStatus.FORBIDDEN);
         }
 
         try{
@@ -143,10 +148,11 @@ public class VideoService {
 
     public List<Video> getVideosForBatch(String batchId, String userEmail) {
         User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı"));
+                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
 
         return videoRepository.findByBatchIdAndUser(batchId, currentUser);
     }
+
     public void createZipForVideos(List<Video> videos, OutputStream outputStream) {
         try (ZipOutputStream zos = new ZipOutputStream(outputStream)) {
             boolean hasFiles = false;
@@ -207,7 +213,7 @@ public class VideoService {
 
         String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı"));
+                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
 
         Video video = Video.builder()
                 .title(title)
@@ -239,7 +245,7 @@ public class VideoService {
 
         String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı"));
+                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
 
         List<UUID> allVideoIdsToMerge = new ArrayList<>();
 
@@ -247,10 +253,10 @@ public class VideoService {
             List<Video> sourceVideos = videoRepository.findAllById(existingVideoIds);
             for (Video v : sourceVideos) {
                 if (!v.getUser().getId().equals(currentUser.getId())) {
-                    throw new RuntimeException("Sadece kendi videolarınızı birleştirebilirsiniz!");
+                    throw new BusinessException("Sadece kendi videolarınızı birleştirebilirsiniz!", HttpStatus.FORBIDDEN);
                 }
                 if (v.getStatus() != VideoStatus.COMPLETED) {
-                    throw new RuntimeException("Yalnızca işlemi tamamlanmış (COMPLETED) mevcut videolar birleştirilebilir.");
+                    throw new BusinessException("Yalnızca işlemi tamamlanmış (COMPLETED) mevcut videolar birleştirilebilir.", HttpStatus.BAD_REQUEST);
                 }
                 allVideoIdsToMerge.add(v.getId());
             }
@@ -332,7 +338,7 @@ public class VideoService {
 
         String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı"));
+                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
 
         Video video = Video.builder()
                 .title(title.trim())
@@ -368,7 +374,7 @@ public class VideoService {
 
         String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         User currentUser = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new RuntimeException("Kullanıcı bulunamadı"));
+                .orElseThrow(() -> new BusinessException("Kullanıcı bulunamadı.", HttpStatus.NOT_FOUND));
 
         Video video = Video.builder()
                 .title(title.trim())
@@ -388,10 +394,10 @@ public class VideoService {
         String currentUserEmail = SecurityContextHolder.getContext().getAuthentication().getName();
 
         Video video = videoRepository.findById(videoId)
-                .orElseThrow(() -> new RuntimeException("Video bulunamadı."));
+                .orElseThrow(() -> new BusinessException("Video bulunamadı.", HttpStatus.NOT_FOUND));
 
         if (!video.getUser().getEmail().equals(currentUserEmail)) {
-            throw new RuntimeException("Güvenlik İhlali: Bu video size ait değil!");
+            throw new BusinessException("Güvenlik İhlali: Bu video size ait değil!", HttpStatus.FORBIDDEN);
         }
 
         return video;
