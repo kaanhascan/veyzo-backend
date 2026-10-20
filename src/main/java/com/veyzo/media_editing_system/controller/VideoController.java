@@ -5,7 +5,6 @@ import com.veyzo.media_editing_system.model.OperationType;
 import com.veyzo.media_editing_system.model.Video;
 import com.veyzo.media_editing_system.model.VideoStatus;
 
-import com.veyzo.media_editing_system.repository.VideoRepository;
 import com.veyzo.media_editing_system.service.VideoService;
 import com.veyzo.media_editing_system.util.FileValidator;
 import com.veyzo.media_editing_system.dto.response.VideoListResponse;
@@ -27,15 +26,12 @@ import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 
-
-
 @RestController
 @RequestMapping("/api/videos")
 @RequiredArgsConstructor
 public class VideoController {
 
     private final VideoService videoService;
-    private final VideoRepository videoRepository;
 
     @PostMapping(value = "/upload")
     public ResponseEntity<String> uploadVideo(
@@ -46,6 +42,10 @@ public class VideoController {
             @RequestParam(value = "batchId", required = false) String batchId
     ) throws IOException {
         FileValidator.validateVideoFile(file);
+        FileValidator.validateTitle(title);
+        FileValidator.validateTimeParameter(startTime, "Başlangıç süresi (startTime)");
+        FileValidator.validateTimeParameter(duration, "Süre (duration)");
+
         videoService.uploadVideo(file, title, startTime, duration, batchId, OperationType.TRIM);
         return ResponseEntity.ok("Video başarıyla yüklendi");
     }
@@ -57,6 +57,8 @@ public class VideoController {
             @RequestParam(value = "batchId", required = false) String batchId
     ) throws IOException {
         FileValidator.validateVideoFile(file);
+        FileValidator.validateTitle(title);
+
         videoService.uploadForAudio(file, title, batchId, OperationType.AUDIO);
         return ResponseEntity.ok("Video başarıyla yüklendi, ses ayırma işlemi başladı");
     }
@@ -146,6 +148,8 @@ public class VideoController {
             @RequestParam("title") String title,
             @RequestParam(value = "batchId", required = false) String batchId
     ) throws IOException {
+        FileValidator.validateTitle(title);
+
         List<UUID> uuidList = null;
         if (existingVideoIds != null && !existingVideoIds.isEmpty()) {
             try {
@@ -173,6 +177,8 @@ public class VideoController {
             @RequestParam(value = "batchId", required = false) String batchId
     ) throws IOException {
         FileValidator.validateVideoFile(file);
+        FileValidator.validateTitle(title);
+
         videoService.uploadForGif(file, title, batchId, OperationType.GIF);
         return ResponseEntity.ok("GIF dönüştürme işlemi başarıyla kuyruğa alındı.");
     }
@@ -183,6 +189,8 @@ public class VideoController {
             @RequestParam("title") String title
     ) throws IOException {
         FileValidator.validateVideoFile(file);
+        FileValidator.validateTitle(title);
+
         videoService.uploadForCompression(file, title, OperationType.COMPRESS);
         return ResponseEntity.ok("Sıkıştırma işlemi başarıyla kuyruğa alındı.");
     }
