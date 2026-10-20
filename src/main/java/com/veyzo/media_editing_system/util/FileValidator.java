@@ -11,7 +11,7 @@ public class FileValidator {
 
     private static final List<String> ALLOWED_EXTENSIONS = Arrays.asList("mp4", "mov");
 
-    // Saniye (örn: "15", "15.5") veya HH:MM:SS / MM:SS formatı (örn: "00:01:30", "01:30.5")
+
     private static final Pattern TIME_FORMAT_PATTERN = Pattern.compile(
             "^(\\d+(\\.\\d+)?|(\\d{1,2}:)?\\d{1,2}:\\d{1,2}(\\.\\d+)?)$"
     );
